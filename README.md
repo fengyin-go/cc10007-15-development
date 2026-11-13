@@ -61,14 +61,42 @@ npm run build
 | 变更审计 | `audit` | 审计记录 | 记录编号、操作表名、变更类型 |
 | 编目检索 | `catalog` | 编目条目 | 条目编号、数据集名称、所属分层 |
 
+## 转换编排（领域能力）
+
+「转换编排」页面（`frontend/src/views/transform/`）在通用登记骨架之上实现了完整的依赖编排领域能力，
+数据与逻辑位于 `frontend/src/data/orchestration/`，独立持久化在 localStorage：
+
+- **可并行波次计算**（`engine.ts` 的 `buildPlan`）：多选节点后按输入表、输出表、依赖节点与执行顺序，
+  用 Kahn 分层把节点组织成可检查的依赖波次，同波节点无依赖可并行，波间严格按序。
+- **阻断识别**：缺失依赖、自环、相互等待（DFS 三色标记找环）作为硬阻断，计划不可确认；
+  质量校验的 block 级结果定位到具体节点波次并向下游传播；任务监控告警也关联到节点与波次。
+- **失败策略**：阻断下游 / 跳过继续 / 分片续跑。计划先预演每个节点失败后哪些下游被跳过、
+  哪些可从未完成分片继续；执行页可模拟失败并从断点分片续跑。
+- **版本与并发**：节点表达式或依赖变更即升版；确认计划时锁定每个节点版本。同名计划再编排会生成
+  新一代并把旧代数标记为 `superseded`；迟到的完成消息按代数校验，旧代数消息被隔离，不能推进新计划。
+- **执行证据**：确认时为每个节点保存不可变快照（当次表达式、输入表、版本、失败策略），
+  即使节点后续升版，回看仍显示当次表达式与输入版本。
+- **回看与流程验收**：以转换编排为主对象回看执行波次；流程验收覆盖依赖、构建、部署、环境、
+  数据库版本五个维度。
+
+领域逻辑验证（Node 内注入内存版 localStorage，不依赖浏览器）：
+
+```bash
+cd frontend
+npm run verify:orchestration
+```
+
 ## 约定
 
 - 每个模块的页面在 `frontend/src/views/<模块>/index.vue`，页面只负责渲染，读写统一走
   `frontend/src/api/local-service.ts`。
+- 转换编排的领域类型、引擎、持久化与示例数据集中在 `frontend/src/data/orchestration/`，
+  页面组件放在 `frontend/src/views/transform/`。
 - 字段、状态、动作与流转目标集中在 `frontend/src/data/modules.ts`；示例数据在
   `frontend/src/data/seed.ts`。
-- 状态流转只允许在 `local-service.ts` 里改，页面组件不做业务判断。
-- 想回到初始数据：清掉浏览器里 `data-layer-studio:entries` 这一项，或调用 `resetModule(模块)`。
+- 状态流转只允许在 `local-service.ts`（及转换编排的 `orchestration/store.ts`）里改，页面组件不做业务判断。
+- 想回到初始数据：清掉浏览器里 `data-layer-studio:entries`、
+  `data-layer-studio:orchestration:*` 等项，或调用 `resetModule(模块)`。
 
 领域：数据工程
 子方向：数仓与数据湖
